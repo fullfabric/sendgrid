@@ -45,7 +45,7 @@ describe SendGrid do
       end
 
       mail    = class_under_test.email_method_under_test
-      expect( mail[ 'X-SMTPAPI' ].value ).to eq '{"category": "category_1"}'
+      expect( mail[ 'X-SMTPAPI' ].value ).to include '"category": "category_1"'
 
     end
 
@@ -61,7 +61,7 @@ describe SendGrid do
       end
 
       mail    = class_under_test.email_method_under_test
-      expect( mail[ 'X-SMTPAPI' ].value ).to eq '{"unique_args": {"campaign_id":12345}}'
+      expect( mail[ 'X-SMTPAPI' ].value ).to include '"unique_args": {"campaign_id":12345}'
 
     end
 
@@ -109,6 +109,28 @@ describe SendGrid do
 
   end
 
+  it "passes all the recipients in the sengrid specific header so that sendgrid remove the addresses from the to header" do
+
+    class_under_test = Class.new( ActionMailerWithSendgrid ) do
+
+      def email_method_under_test
+
+        options = {
+          to: [ "Cosmo Kramer <kramer@example.com>", "Newman <newman@example.com>" ],
+          from: "Bob Sacamento <bob@example.com>",
+          subject: "Cat-fight"
+        }
+
+        mail options
+
+      end
+    end
+
+    mail    = class_under_test.email_method_under_test
+    expect( mail[ 'X-SMTPAPI' ].value ).to include '"to": ["kramer@example.com", "newman@example.com"]'
+
+  end
+
   context "substitutions" do
 
     it "sets the substitution tags" do
@@ -133,7 +155,7 @@ describe SendGrid do
       end
 
       mail    = class_under_test.email_method_under_test
-      expect( mail[ 'X-SMTPAPI' ].value ).to eq '{"sub": {"|first_name|": ["Cosmo", "Newman"], "|last_name|": ["Kramer",null]}}'
+      expect( mail[ 'X-SMTPAPI' ].value ).to include '"sub": {"|first_name|": ["Cosmo", "Newman"], "|last_name|": ["Kramer",null]}'
 
     end
 

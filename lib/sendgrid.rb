@@ -34,21 +34,21 @@ module SendGrid
 
         attr_accessor :default_sg_category,
                       :default_sg_options,
-                      :default_subscriptiontrack_text,
-                      :default_footer_text,
-                      :default_spamcheck_score,
+                      :default_sg_subscriptiontrack_text,
+                      :default_sg_footer_text,
+                      :default_sg_spamcheck_score,
                       :default_sg_unique_args
       end
 
-      attr_accessor :sg_category,
-                    :sg_options,
-                    :sg_disabled_options,
-                    :sg_recipients,
-                    :sg_substitutions,
-                    :subscriptiontrack_text,
-                    :footer_text,
-                    :spamcheck_score,
-                    :sg_unique_args
+      # attr_accessor :sg_category,
+      #               :sg_options,
+      #               :sg_disabled_options,
+      #               :sg_recipients,
+      #               :sg_substitutions,
+      #               :sg_subscriptiontrack_text,
+      #               :sg_footer_text,
+      #               :sg_spamcheck_score,
+      #               :sg_unique_args
 
     end
 
@@ -91,6 +91,11 @@ module SendGrid
       options.each { |option| self.default_sg_options << option if VALID_OPTIONS.include?(option) }
     end
 
+    def sendgrid_disable *options
+      self.default_sg_options = Array.new unless self.default_sg_options
+      options.each { |option| self.default_sg_options.delete option }
+    end
+
     # Sets the default text for subscription tracking (must be enabled).
     # There are two options:
     # 1. Add an unsubscribe link at the bottom of the email
@@ -98,19 +103,19 @@ module SendGrid
     # 2. Replace given text with the unsubscribe link
     #   {:replace => "<unsubscribe_link>" }
     def sendgrid_subscriptiontrack_text texts
-      self.default_subscriptiontrack_text = texts
+      self.default_sg_subscriptiontrack_text = texts
     end
 
     # Sets the default footer text (must be enabled).
     # Should be a hash containing the html/plain text versions:
     #   {:html => "html version", :plain => "plan text version"}
     def sendgrid_footer_text texts
-      self.default_footer_text = texts
+      self.default_sg_footer_text = texts
     end
 
     # Sets the default spamcheck score text (must be enabled).
     def sendgrid_spamcheck_maxscore score
-      self.default_spamcheck_score = score
+      self.default_sg_spamcheck_score = score
     end
 
     # Sets unique args at the class level. Should be a hash
@@ -145,9 +150,9 @@ module SendGrid
     options.each { |option| @sg_disabled_options << option if VALID_OPTIONS.include?(option) }
   end
 
-  # Call within mailer method to add an array of recipients
-  # def sendgrid_recipients(emails)
-  #   @sg_recipients = Array.new unless @sg_recipients
+  # # Call within mailer method to add an array of recipients
+  # def sendgrid_recipients emails
+  #   raise ArgumentError.new( "recipients need to be an array" ) unless emails.is_a?( Array )
   #   @sg_recipients = emails
   # end
 
@@ -161,24 +166,35 @@ module SendGrid
 
   # Call within mailer method to override the default value.
   def sendgrid_subscriptiontrack_text texts
-    @subscriptiontrack_text = texts
+    @sg_subscriptiontrack_text = texts
   end
 
   # Call within mailer method to override the default value.
   def sendgrid_footer_text texts
-    @footer_text = texts
+    @sg_footer_text = texts
   end
 
   # Call within mailer method to override the default value.
   def sendgrid_spamcheck_maxscore score
-    @spamcheck_score = score
+    @sg_spamcheck_score = score
   end
 
   # Call within mailer method to set custom google analytics options
   # http://sendgrid.com/documentation/appsGoogleAnalytics
   def sendgrid_ganalytics_options options
-    @ganalytics_options = []
-    options.each { |option| @ganalytics_options << option if VALID_GANALYTICS_OPTIONS.include?(option[0].to_sym) }
+    @sg_ganalytics_options = []
+    options.each { |option| @sg_ganalytics_options << option if VALID_GANALYTICS_OPTIONS.include?(option[0].to_sym) }
+  end
+
+  def sendgrid_anonymize_recipients
+    @sg_publicize_recipients = false
+  end
+
+  # Call this if you require email addresses to show in
+  # to, cc and bcc fields. This is also required for cc
+  # and bcc addresses to receive the email.
+  def sendgrid_publicize_recipients
+    @sg_publicize_recipients = true
   end
 
   protected
@@ -189,6 +205,8 @@ module SendGrid
       raise ArgumentError.new( "sender required" ) unless params[ :from ].present?
       raise ArgumentError.new( ":to needs to be an array" ) unless params[ :to ].present? && params[ :to ].is_a?( Array )
       raise ArgumentError.new( "at least one recipient required" ) unless params[ :to ].size > 0
+
+      # binding.pry
 
       super.tap do |message|
 
@@ -215,7 +233,19 @@ module SendGrid
 
     end
 
-    def build_unique_args_headers header_opts
+    def prepare_recipients sendgrid_headers_options
+
+      anonymize_recipients sendgrid_headers_options unless @sg_publicize_recipients
+      sendgrid_headers_options
+
+    end
+
+    # this ensures recipients get removed from the to, cc and bcc headers
+    def anonymize_recipients sendgrid_headers_options
+      sendgrid_headers_options[ :to ] = message.to.to_a
+    end
+
+    def build_unique_args_headers sendgrid_headers_options
 
       @sg_unique_args = @sg_unique_args || {}
 
@@ -224,46 +254,46 @@ module SendGrid
         unique_args = self.class.default_sg_unique_args || {}
         unique_args = unique_args.merge @sg_unique_args
 
-        header_opts[ :unique_args ] = unique_args unless unique_args.empty?
+        sendgrid_headers_options[ :unique_args ] = unique_args unless unique_args.empty?
 
       end
 
-      header_opts
+      sendgrid_headers_options
 
     end
 
-    def build_category_headers header_opts
+    def build_category_headers sendgrid_headers_options
 
       if @sg_category && @sg_category == :use_subject_lines
 
-        header_opts[ :category ] = mail.subject
+        sendgrid_headers_options[ :category ] = message.subject
 
       elsif @sg_category
 
-        header_opts[ :category ] = @sg_category
+        sendgrid_headers_options[ :category ] = @sg_category
 
       elsif self.class.default_sg_category && self.class.default_sg_category.to_sym == :use_subject_lines
 
-        header_opts[ :category ] = mail.subject
+        sendgrid_headers_options[ :category ] = message.subject
 
       elsif self.class.default_sg_category
 
-        header_opts[ :category ] = self.class.default_sg_category
+        sendgrid_headers_options[ :category ] = self.class.default_sg_category
 
       end
 
-      header_opts
+      sendgrid_headers_options
 
     end
 
-    def build_substitutions_headers header_opts
+    def build_substitutions_headers sendgrid_headers_options
 
-      header_opts[ :sub ] = @sg_substitutions if @sg_substitutions && !@sg_substitutions.empty?
-      header_opts
+      sendgrid_headers_options[ :sub ] = @sg_substitutions if @sg_substitutions && !@sg_substitutions.empty?
+      sendgrid_headers_options
 
     end
 
-    def build_options_headers header_opts
+    def build_options_headers sendgrid_headers_options
 
       enabled_opts = []
 
@@ -283,32 +313,34 @@ module SendGrid
       if !enabled_opts.empty? || (@sg_disabled_options && !@sg_disabled_options.empty?)
 
         filters = filters_hash_from_options(enabled_opts, @sg_disabled_options)
-        header_opts[:filters] = filters if filters && !filters.empty?
+        sendgrid_headers_options[:filters] = filters if filters && !filters.empty?
 
       end
 
-      header_opts
+      sendgrid_headers_options
 
     end
 
-    def headers_as_json_for_sendgrid mail
+    def headers_as_json_for_sendgrid message
 
-      header_opts = {}
+      sendgrid_headers_options = {}
 
-      build_unique_args_headers   header_opts
-      build_category_headers      header_opts
-      build_substitutions_headers header_opts
-      build_options_headers       header_opts
+      prepare_recipients sendgrid_headers_options
+
+      build_unique_args_headers   sendgrid_headers_options
+      build_category_headers      sendgrid_headers_options
+      build_substitutions_headers sendgrid_headers_options
+      build_options_headers       sendgrid_headers_options
 
       # clean up json
-      header_opts.to_json.gsub(/(["\]}])([,:])(["\[{])/, '\\1\\2 \\3')
+      sendgrid_headers_options.to_json.gsub(/(["\]}])([,:])(["\[{])/, '\\1\\2 \\3')
 
     end
 
 
 
 
-    def filters_hash_from_options(enabled_opts, disabled_opts)
+    def filters_hash_from_options enabled_opts, disabled_opts
 
       filters = {}
 
@@ -316,39 +348,39 @@ module SendGrid
         filters[opt] = {'settings' => {'enable' => 1}}
         case opt.to_sym
           when :subscriptiontrack
-            if @subscriptiontrack_text
-              if @subscriptiontrack_text[:replace]
-                filters[:subscriptiontrack]['settings']['replace'] = @subscriptiontrack_text[:replace]
+            if @sg_subscriptiontrack_text
+              if @sg_subscriptiontrack_text[:replace]
+                filters[:subscriptiontrack]['settings']['replace'] = @sg_subscriptiontrack_text[:replace]
               else
-                filters[:subscriptiontrack]['settings']['text/html'] = @subscriptiontrack_text[:html]
-                filters[:subscriptiontrack]['settings']['text/plain'] = @subscriptiontrack_text[:plain]
+                filters[:subscriptiontrack]['settings']['text/html'] = @sg_subscriptiontrack_text[:html]
+                filters[:subscriptiontrack]['settings']['text/plain'] = @sg_subscriptiontrack_text[:plain]
               end
-            elsif self.class.default_subscriptiontrack_text
-              if self.class.default_subscriptiontrack_text[:replace]
-                filters[:subscriptiontrack]['settings']['replace'] = self.class.default_subscriptiontrack_text[:replace]
+            elsif self.class.default_sg_subscriptiontrack_text
+              if self.class.default_sg_subscriptiontrack_text[:replace]
+                filters[:subscriptiontrack]['settings']['replace'] = self.class.default_sg_subscriptiontrack_text[:replace]
               else
-                filters[:subscriptiontrack]['settings']['text/html'] = self.class.default_subscriptiontrack_text[:html]
-                filters[:subscriptiontrack]['settings']['text/plain'] = self.class.default_subscriptiontrack_text[:plain]
+                filters[:subscriptiontrack]['settings']['text/html'] = self.class.default_sg_subscriptiontrack_text[:html]
+                filters[:subscriptiontrack]['settings']['text/plain'] = self.class.default_sg_subscriptiontrack_text[:plain]
               end
             end
 
           when :footer
-            if @footer_text
-              filters[:footer]['settings']['text/html'] = @footer_text[:html]
-              filters[:footer]['settings']['text/plain'] = @footer_text[:plain]
-            elsif self.class.default_footer_text
-              filters[:footer]['settings']['text/html'] = self.class.default_footer_text[:html]
-              filters[:footer]['settings']['text/plain'] = self.class.default_footer_text[:plain]
+            if @sg_footer_text
+              filters[:footer]['settings']['text/html'] = @sg_footer_text[:html]
+              filters[:footer]['settings']['text/plain'] = @sg_footer_text[:plain]
+            elsif self.class.default_sg_footer_text
+              filters[:footer]['settings']['text/html'] = self.class.default_sg_footer_text[:html]
+              filters[:footer]['settings']['text/plain'] = self.class.default_sg_footer_text[:plain]
             end
 
           when :spamcheck
-            if self.class.default_spamcheck_score || @spamcheck_score
-              filters[:spamcheck]['settings']['maxscore'] = @spamcheck_score || self.class.default_spamcheck_score
+            if self.class.default_sg_spamcheck_score || @sg_spamcheck_score
+              filters[:spamcheck]['settings']['maxscore'] = @sg_spamcheck_score || self.class.default_sg_spamcheck_score
             end
 
           when :ganalytics
-            if @ganalytics_options
-              @ganalytics_options.each do |key, value|
+            if @sg_ganalytics_options
+              @sg_ganalytics_options.each do |key, value|
                 filters[:ganalytics]['settings'][key.to_s] = value
               end
             end
