@@ -1,5 +1,5 @@
 require 'json'
-require 'sendgrid/railtie'
+# require 'sendgrid/railtie'
 
 module SendGrid
 
@@ -282,6 +282,7 @@ module SendGrid
     def filters_hash_from_options(enabled_opts, disabled_opts)
 
       filters = {}
+
       enabled_opts.each do |opt|
         filters[opt] = {'settings' => {'enable' => 1}}
         case opt.to_sym
