@@ -29,22 +29,39 @@ module SendGrid
   def self.included(base)
 
     base.class_eval do
+
       class << self
-        attr_accessor :default_sg_category, :default_sg_options, :default_subscriptiontrack_text,
-                      :default_footer_text, :default_spamcheck_score, :default_sg_unique_args
+
+        attr_accessor :default_sg_category,
+                      :default_sg_options,
+                      :default_subscriptiontrack_text,
+                      :default_footer_text,
+                      :default_spamcheck_score,
+                      :default_sg_unique_args
       end
-      attr_accessor :sg_category, :sg_options, :sg_disabled_options, :sg_recipients, :sg_substitutions,
-                    :subscriptiontrack_text, :footer_text, :spamcheck_score, :sg_unique_args
+
+      attr_accessor :sg_category,
+                    :sg_options,
+                    :sg_disabled_options,
+                    :sg_recipients,
+                    :sg_substitutions,
+                    :subscriptiontrack_text,
+                    :footer_text,
+                    :spamcheck_score,
+                    :sg_unique_args
+
     end
 
     # NOTE: This commented-out approach may be a "safer" option for Rails 3, but it
     # would cause the headers to get set during delivery, and not when the message is initialized.
+    #
     # If base supports register_interceptor (i.e., Rails 3 ActionMailer), use it...
     # if base.respond_to?(:register_interceptor)
     #   base.register_interceptor(SendgridInterceptor)
     # end
 
     base.extend(ClassMethods)
+
   end
 
   module ClassMethods
@@ -54,7 +71,7 @@ module SendGrid
     # each outgoing email for the SendGrid category. This special behavior
     # can still be overridden by calling sendgrid_category from within a
     # mailer method.
-    def sendgrid_category(category)
+    def sendgrid_category category
       self.default_sg_category = category
     end
 
@@ -69,7 +86,7 @@ module SendGrid
     # * :subscriptiontrack
     # * :footer
     # * :spamcheck
-    def sendgrid_enable(*options)
+    def sendgrid_enable *options
       self.default_sg_options = Array.new unless self.default_sg_options
       options.each { |option| self.default_sg_options << option if VALID_OPTIONS.include?(option) }
     end
@@ -80,50 +97,50 @@ module SendGrid
     #   {:html => "Unsubscribe <% here %>", :plain => "Unsubscribe here: <% %>"}
     # 2. Replace given text with the unsubscribe link
     #   {:replace => "<unsubscribe_link>" }
-    def sendgrid_subscriptiontrack_text(texts)
+    def sendgrid_subscriptiontrack_text texts
       self.default_subscriptiontrack_text = texts
     end
 
     # Sets the default footer text (must be enabled).
     # Should be a hash containing the html/plain text versions:
     #   {:html => "html version", :plain => "plan text version"}
-    def sendgrid_footer_text(texts)
+    def sendgrid_footer_text texts
       self.default_footer_text = texts
     end
 
     # Sets the default spamcheck score text (must be enabled).
-    def sendgrid_spamcheck_maxscore(score)
+    def sendgrid_spamcheck_maxscore score
       self.default_spamcheck_score = score
     end
 
     # Sets unique args at the class level. Should be a hash
     # of name, value pairs.
     #   { :some_unique_arg => "some_value"}
-    def sendgrid_unique_args(unique_args = {})
+    def sendgrid_unique_args unique_args = {}
       self.default_sg_unique_args = unique_args
     end
 
   end
 
   # Call within mailer method to override the default value.
-  def sendgrid_category(category)
+  def sendgrid_category category
     @sg_category = category
   end
 
   # Call within mailer method to set unique args for this email.
   # Merged with class-level unique args, if any exist.
-  def sendgrid_unique_args(unique_args = {})
+  def sendgrid_unique_args unique_args = {}
     @sg_unique_args = unique_args
   end
 
   # Call within mailer method to add an option not in the defaults.
-  def sendgrid_enable(*options)
+  def sendgrid_enable *options
     @sg_options = Array.new unless @sg_options
     options.each { |option| @sg_options << option if VALID_OPTIONS.include?(option) }
   end
 
   # Call within mailer method to remove one of the defaults.
-  def sendgrid_disable(*options)
+  def sendgrid_disable *options
     @sg_disabled_options = Array.new unless @sg_disabled_options
     options.each { |option| @sg_disabled_options << option if VALID_OPTIONS.include?(option) }
   end
@@ -137,29 +154,29 @@ module SendGrid
   # Call within mailer method to add an array of substitions
   # NOTE: you must ensure that the length of the substitions equals the
   #       length of the sendgrid_recipients.
-  def sendgrid_substitute(placeholder, subs)
+  def sendgrid_substitute placeholder, subs
     @sg_substitutions = Hash.new unless @sg_substitutions
     @sg_substitutions[placeholder] = subs
   end
 
   # Call within mailer method to override the default value.
-  def sendgrid_subscriptiontrack_text(texts)
+  def sendgrid_subscriptiontrack_text texts
     @subscriptiontrack_text = texts
   end
 
   # Call within mailer method to override the default value.
-  def sendgrid_footer_text(texts)
+  def sendgrid_footer_text texts
     @footer_text = texts
   end
 
   # Call within mailer method to override the default value.
-  def sendgrid_spamcheck_maxscore(score)
+  def sendgrid_spamcheck_maxscore score
     @spamcheck_score = score
   end
 
   # Call within mailer method to set custom google analytics options
   # http://sendgrid.com/documentation/appsGoogleAnalytics
-  def sendgrid_ganalytics_options(options)
+  def sendgrid_ganalytics_options options
     @ganalytics_options = []
     options.each { |option| @ganalytics_options << option if VALID_GANALYTICS_OPTIONS.include?(option[0].to_sym) }
   end
@@ -167,22 +184,20 @@ module SendGrid
   protected
 
     # Sets the custom X-SMTPAPI header after creating the email but before delivery
-    def mail(headers={}, &block)
+    def mail params = {}, &block
 
-      raise ArgumentError.new( "sender required" ) unless headers[ :from ].present?
-      raise ArgumentError.new( ":to needs to be an array" ) unless headers[ :to ].present? && headers[ :to ].is_a?( Array )
-      raise ArgumentError.new( "at least one recipient required" ) unless headers[ :to ].size > 0
+      raise ArgumentError.new( "sender required" ) unless params[ :from ].present?
+      raise ArgumentError.new( ":to needs to be an array" ) unless params[ :to ].present? && params[ :to ].is_a?( Array )
+      raise ArgumentError.new( "at least one recipient required" ) unless params[ :to ].size > 0
 
-      super.tap do
+      super.tap do |message|
 
-        check_substitutions_match_recipients headers
-
-        Rails.logger.debug "SendGrid X-SMTPAPI: #{headers_as_json_for_sendgrid(message)}" if DEBUG
+        ensure_substitutions_match_recipients! params
 
         # Setting the headers on the Mailer class rather than on the Mail message as
         # per the documentation of ActionMailer::Base
         # http://api.rubyonrails.org/classes/ActionMailer/Base.html#method-i-headers
-        self.headers['X-SMTPAPI'] = headers_as_json_for_sendgrid( message )
+        self.headers['X-SMTPAPI'] = headers_as_json_for_sendgrid message
 
       end
 
@@ -190,7 +205,7 @@ module SendGrid
 
   private
 
-    def check_substitutions_match_recipients headers
+    def ensure_substitutions_match_recipients! headers
 
       if @sg_substitutions && !@sg_substitutions.empty?
         @sg_substitutions.each do |find, replace|
@@ -202,15 +217,15 @@ module SendGrid
 
     def build_unique_args_headers header_opts
 
-      #if not called within the mailer method, this will be nil so we default to empty hash
       @sg_unique_args = @sg_unique_args || {}
 
-      # set the unique arguments
       if @sg_unique_args || self.class.default_sg_unique_args
-        unique_args = self.class.default_sg_unique_args || {}
-        unique_args = unique_args.merge(@sg_unique_args)
 
-        header_opts[:unique_args] = unique_args unless unique_args.empty?
+        unique_args = self.class.default_sg_unique_args || {}
+        unique_args = unique_args.merge @sg_unique_args
+
+        header_opts[ :unique_args ] = unique_args unless unique_args.empty?
+
       end
 
       header_opts
@@ -219,15 +234,22 @@ module SendGrid
 
     def build_category_headers header_opts
 
-      # Set category
       if @sg_category && @sg_category == :use_subject_lines
-        header_opts[:category] = mail.subject
+
+        header_opts[ :category ] = mail.subject
+
       elsif @sg_category
-        header_opts[:category] = @sg_category
+
+        header_opts[ :category ] = @sg_category
+
       elsif self.class.default_sg_category && self.class.default_sg_category.to_sym == :use_subject_lines
-        header_opts[:category] = mail.subject
+
+        header_opts[ :category ] = mail.subject
+
       elsif self.class.default_sg_category
-        header_opts[:category] = self.class.default_sg_category
+
+        header_opts[ :category ] = self.class.default_sg_category
+
       end
 
       header_opts
@@ -236,29 +258,33 @@ module SendGrid
 
     def build_substitutions_headers header_opts
 
-      if @sg_substitutions && !@sg_substitutions.empty?
-        header_opts[ :sub ] = @sg_substitutions
-      end
-
+      header_opts[ :sub ] = @sg_substitutions if @sg_substitutions && !@sg_substitutions.empty?
       header_opts
 
     end
 
     def build_options_headers header_opts
 
-      # Set enables/disables
       enabled_opts = []
+
       if @sg_options && !@sg_options.empty?
+
         # merge the options so that the instance-level "overrides"
         merged = self.class.default_sg_options || []
         merged += @sg_options
         enabled_opts = merged
+
       elsif self.class.default_sg_options
+
         enabled_opts = self.class.default_sg_options
+
       end
+
       if !enabled_opts.empty? || (@sg_disabled_options && !@sg_disabled_options.empty?)
+
         filters = filters_hash_from_options(enabled_opts, @sg_disabled_options)
         header_opts[:filters] = filters if filters && !filters.empty?
+
       end
 
       header_opts
@@ -278,6 +304,9 @@ module SendGrid
       header_opts.to_json.gsub(/(["\]}])([,:])(["\[{])/, '\\1\\2 \\3')
 
     end
+
+
+
 
     def filters_hash_from_options(enabled_opts, disabled_opts)
 
