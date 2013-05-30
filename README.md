@@ -5,6 +5,10 @@ The sendgrid gem makes it easy to make use of [SendGrid](http://sendgrid.com/) f
 
 This gem is compatible with Rails >= 3.0.
 
+This fork breaks compatibility with the original repo, found at https://github.com/stephenb/sendgrid. Namely, the following features have been removed:
+
+* sendgrid_recipients
+
 What is SendGrid?
 -----------------
 

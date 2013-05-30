@@ -3,6 +3,8 @@ require 'sendgrid/railtie'
 
 module SendGrid
 
+  # By default, all options are disabled, and sendgrid is a plain old SMTP server
+
   VALID_OPTIONS = [
     :opentrack,
     :clicktrack,
@@ -25,6 +27,7 @@ module SendGrid
   DEBUG = false
 
   def self.included(base)
+
     base.class_eval do
       class << self
         attr_accessor :default_sg_category, :default_sg_options, :default_subscriptiontrack_text,
@@ -99,6 +102,7 @@ module SendGrid
     def sendgrid_unique_args(unique_args = {})
       self.default_sg_unique_args = unique_args
     end
+
   end
 
   # Call within mailer method to override the default value.
@@ -125,10 +129,10 @@ module SendGrid
   end
 
   # Call within mailer method to add an array of recipients
-  def sendgrid_recipients(emails)
-    @sg_recipients = Array.new unless @sg_recipients
-    @sg_recipients = emails
-  end
+  # def sendgrid_recipients(emails)
+  #   @sg_recipients = Array.new unless @sg_recipients
+  #   @sg_recipients = emails
+  # end
 
   # Call within mailer method to add an array of substitions
   # NOTE: you must ensure that the length of the substitions equals the
@@ -164,127 +168,171 @@ module SendGrid
 
     # Sets the custom X-SMTPAPI header after creating the email but before delivery
     def mail(headers={}, &block)
-      m = super
-      if @sg_substitutions && !@sg_substitutions.empty?
-        @sg_substitutions.each do |find, replace|
-          raise ArgumentError.new("Array for #{find} is not the same size as the recipient array") if replace.size != @sg_recipients.size
-        end
+
+      raise ArgumentError.new( "sender required" ) unless headers[ :from ].present?
+      raise ArgumentError.new( ":to needs to be an array" ) unless headers[ :to ].present? && headers[ :to ].is_a?( Array )
+      raise ArgumentError.new( "at least one recipient required" ) unless headers[ :to ].size > 0
+
+      super.tap do
+
+        check_substitutions_match_recipients headers
+
+        Rails.logger.debug "SendGrid X-SMTPAPI: #{headers_as_json_for_sendgrid(message)}" if DEBUG
+
+        # Setting the headers on the Mailer class rather than on the Mail message as
+        # per the documentation of ActionMailer::Base
+        # http://api.rubyonrails.org/classes/ActionMailer/Base.html#method-i-headers
+        self.headers['X-SMTPAPI'] = headers_as_json_for_sendgrid( message )
+
       end
 
-      Rails.logger.debug "SendGrid X-SMTPAPI: #{sendgrid_json_headers(message)}" if DEBUG
-
-      self.headers['X-SMTPAPI'] = sendgrid_json_headers(message)
-      m
     end
 
   private
 
-  # Take all of the options and turn it into the json format that SendGrid expects
-  def sendgrid_json_headers(mail)
-    header_opts = {}
+    def check_substitutions_match_recipients headers
 
-    #if not called within the mailer method, this will be nil so we default to empty hash
-    @sg_unique_args = @sg_unique_args || {}
-
-    # set the unique arguments
-    if @sg_unique_args || self.class.default_sg_unique_args
-      unique_args = self.class.default_sg_unique_args || {}
-      unique_args = unique_args.merge(@sg_unique_args)
-
-      header_opts[:unique_args] = unique_args unless unique_args.empty?
-    end
-
-    # Set category
-    if @sg_category && @sg_category == :use_subject_lines
-      header_opts[:category] = mail.subject
-    elsif @sg_category
-      header_opts[:category] = @sg_category
-    elsif self.class.default_sg_category && self.class.default_sg_category.to_sym == :use_subject_lines
-      header_opts[:category] = mail.subject
-    elsif self.class.default_sg_category
-      header_opts[:category] = self.class.default_sg_category
-    end
-
-    # Set multi-recipients
-    if @sg_recipients && !@sg_recipients.empty?
-      header_opts[:to] = @sg_recipients
-    end
-
-    # Set custom substitions
-    if @sg_substitutions && !@sg_substitutions.empty?
-      header_opts[:sub] = @sg_substitutions
-    end
-
-    # Set enables/disables
-    enabled_opts = []
-    if @sg_options && !@sg_options.empty?
-      # merge the options so that the instance-level "overrides"
-      merged = self.class.default_sg_options || []
-      merged += @sg_options
-      enabled_opts = merged
-    elsif self.class.default_sg_options
-      enabled_opts = self.class.default_sg_options
-    end
-    if !enabled_opts.empty? || (@sg_disabled_options && !@sg_disabled_options.empty?)
-      filters = filters_hash_from_options(enabled_opts, @sg_disabled_options)
-      header_opts[:filters] = filters if filters && !filters.empty?
-    end
-
-    header_opts.to_json.gsub(/(["\]}])([,:])(["\[{])/, '\\1\\2 \\3')
-  end
-
-  def filters_hash_from_options(enabled_opts, disabled_opts)
-    filters = {}
-    enabled_opts.each do |opt|
-      filters[opt] = {'settings' => {'enable' => 1}}
-      case opt.to_sym
-        when :subscriptiontrack
-          if @subscriptiontrack_text
-            if @subscriptiontrack_text[:replace]
-              filters[:subscriptiontrack]['settings']['replace'] = @subscriptiontrack_text[:replace]
-            else
-              filters[:subscriptiontrack]['settings']['text/html'] = @subscriptiontrack_text[:html]
-              filters[:subscriptiontrack]['settings']['text/plain'] = @subscriptiontrack_text[:plain]
-            end
-          elsif self.class.default_subscriptiontrack_text
-            if self.class.default_subscriptiontrack_text[:replace]
-              filters[:subscriptiontrack]['settings']['replace'] = self.class.default_subscriptiontrack_text[:replace]
-            else
-              filters[:subscriptiontrack]['settings']['text/html'] = self.class.default_subscriptiontrack_text[:html]
-              filters[:subscriptiontrack]['settings']['text/plain'] = self.class.default_subscriptiontrack_text[:plain]
-            end
-          end
-
-        when :footer
-          if @footer_text
-            filters[:footer]['settings']['text/html'] = @footer_text[:html]
-            filters[:footer]['settings']['text/plain'] = @footer_text[:plain]
-          elsif self.class.default_footer_text
-            filters[:footer]['settings']['text/html'] = self.class.default_footer_text[:html]
-            filters[:footer]['settings']['text/plain'] = self.class.default_footer_text[:plain]
-          end
-
-        when :spamcheck
-          if self.class.default_spamcheck_score || @spamcheck_score
-            filters[:spamcheck]['settings']['maxscore'] = @spamcheck_score || self.class.default_spamcheck_score
-          end
-
-        when :ganalytics
-          if @ganalytics_options
-            @ganalytics_options.each do |key, value|
-              filters[:ganalytics]['settings'][key.to_s] = value
-            end
-          end
+      if @sg_substitutions && !@sg_substitutions.empty?
+        @sg_substitutions.each do |find, replace|
+          raise ArgumentError.new("Array for #{find} is not the same size as the recipient array") if replace.size != headers[ :to ].size
+        end
       end
+
     end
 
-    if disabled_opts
-      disabled_opts.each do |opt|
-        filters[opt] = {'settings' => {'enable' => 0}}
+    def build_unique_args_headers header_opts
+
+      #if not called within the mailer method, this will be nil so we default to empty hash
+      @sg_unique_args = @sg_unique_args || {}
+
+      # set the unique arguments
+      if @sg_unique_args || self.class.default_sg_unique_args
+        unique_args = self.class.default_sg_unique_args || {}
+        unique_args = unique_args.merge(@sg_unique_args)
+
+        header_opts[:unique_args] = unique_args unless unique_args.empty?
       end
+
+      header_opts
+
     end
 
-    return filters
-  end
+    def build_category_headers header_opts
+
+      # Set category
+      if @sg_category && @sg_category == :use_subject_lines
+        header_opts[:category] = mail.subject
+      elsif @sg_category
+        header_opts[:category] = @sg_category
+      elsif self.class.default_sg_category && self.class.default_sg_category.to_sym == :use_subject_lines
+        header_opts[:category] = mail.subject
+      elsif self.class.default_sg_category
+        header_opts[:category] = self.class.default_sg_category
+      end
+
+      header_opts
+
+    end
+
+    def build_substitutions_headers header_opts
+
+      if @sg_substitutions && !@sg_substitutions.empty?
+        header_opts[ :sub ] = @sg_substitutions
+      end
+
+      header_opts
+
+    end
+
+    def build_options_headers header_opts
+
+      # Set enables/disables
+      enabled_opts = []
+      if @sg_options && !@sg_options.empty?
+        # merge the options so that the instance-level "overrides"
+        merged = self.class.default_sg_options || []
+        merged += @sg_options
+        enabled_opts = merged
+      elsif self.class.default_sg_options
+        enabled_opts = self.class.default_sg_options
+      end
+      if !enabled_opts.empty? || (@sg_disabled_options && !@sg_disabled_options.empty?)
+        filters = filters_hash_from_options(enabled_opts, @sg_disabled_options)
+        header_opts[:filters] = filters if filters && !filters.empty?
+      end
+
+      header_opts
+
+    end
+
+    def headers_as_json_for_sendgrid mail
+
+      header_opts = {}
+
+      build_unique_args_headers   header_opts
+      build_category_headers      header_opts
+      build_substitutions_headers header_opts
+      build_options_headers       header_opts
+
+      # clean up json
+      header_opts.to_json.gsub(/(["\]}])([,:])(["\[{])/, '\\1\\2 \\3')
+
+    end
+
+    def filters_hash_from_options(enabled_opts, disabled_opts)
+
+      filters = {}
+      enabled_opts.each do |opt|
+        filters[opt] = {'settings' => {'enable' => 1}}
+        case opt.to_sym
+          when :subscriptiontrack
+            if @subscriptiontrack_text
+              if @subscriptiontrack_text[:replace]
+                filters[:subscriptiontrack]['settings']['replace'] = @subscriptiontrack_text[:replace]
+              else
+                filters[:subscriptiontrack]['settings']['text/html'] = @subscriptiontrack_text[:html]
+                filters[:subscriptiontrack]['settings']['text/plain'] = @subscriptiontrack_text[:plain]
+              end
+            elsif self.class.default_subscriptiontrack_text
+              if self.class.default_subscriptiontrack_text[:replace]
+                filters[:subscriptiontrack]['settings']['replace'] = self.class.default_subscriptiontrack_text[:replace]
+              else
+                filters[:subscriptiontrack]['settings']['text/html'] = self.class.default_subscriptiontrack_text[:html]
+                filters[:subscriptiontrack]['settings']['text/plain'] = self.class.default_subscriptiontrack_text[:plain]
+              end
+            end
+
+          when :footer
+            if @footer_text
+              filters[:footer]['settings']['text/html'] = @footer_text[:html]
+              filters[:footer]['settings']['text/plain'] = @footer_text[:plain]
+            elsif self.class.default_footer_text
+              filters[:footer]['settings']['text/html'] = self.class.default_footer_text[:html]
+              filters[:footer]['settings']['text/plain'] = self.class.default_footer_text[:plain]
+            end
+
+          when :spamcheck
+            if self.class.default_spamcheck_score || @spamcheck_score
+              filters[:spamcheck]['settings']['maxscore'] = @spamcheck_score || self.class.default_spamcheck_score
+            end
+
+          when :ganalytics
+            if @ganalytics_options
+              @ganalytics_options.each do |key, value|
+                filters[:ganalytics]['settings'][key.to_s] = value
+              end
+            end
+        end
+      end
+
+      if disabled_opts
+        disabled_opts.each do |opt|
+          filters[opt] = {'settings' => {'enable' => 0}}
+        end
+      end
+
+      return filters
+
+    end
 
 end
